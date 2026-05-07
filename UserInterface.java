@@ -16,8 +16,8 @@ import java.util.List;
  */
 public class UserInterface extends JFrame {
 
-    private final HuffmanEngine engine;
-    private final BinaryIOManager ioManager;
+    private final MotorHuffman motor;
+    private final GestorIOBinario gestorIO;
 
     /** Área de texto para el archivo original (panel izquierdo). */
     private JTextArea textAreaOriginal;
@@ -42,12 +42,12 @@ public class UserInterface extends JFrame {
 
     /**
      * Construye la interfaz gráfica.
-     * @param engine    motor de Huffman
-     * @param ioManager gestor de E/S binaria
+     * @param motor    motor de Huffman
+     * @param gestorIO gestor de E/S binaria
      */
-    public UserInterface(HuffmanEngine engine, BinaryIOManager ioManager) {
-        this.engine = engine;
-        this.ioManager = ioManager;
+    public UserInterface(MotorHuffman motor, GestorIOBinario gestorIO) {
+        this.motor = motor;
+        this.gestorIO = gestorIO;
         initializeUI();
     }
 
@@ -204,7 +204,7 @@ public class UserInterface extends JFrame {
             String baseName = getBaseName(loadedFile.getName());
             compressedFile = new File(loadedFile.getParentFile(), baseName + ".huf");
 
-            ioManager.compress(loadedFile, compressedFile, engine);
+            gestorIO.comprimir(loadedFile, compressedFile, motor);
 
             statusLabel.setText("  Compactación exitosa: " + compressedFile.getName()
                     + " (" + compressedFile.length() + " bytes)");
@@ -249,7 +249,7 @@ public class UserInterface extends JFrame {
             String baseName = getBaseName(hufFile.getName());
             decompressedFile = new File(hufFile.getParentFile(), baseName + ".dhu");
 
-            ioManager.decompress(hufFile, decompressedFile, engine);
+            gestorIO.descomprimir(hufFile, decompressedFile, motor);
 
             // Leer y mostrar el archivo descompactado
             String decompressedContent;
@@ -369,15 +369,15 @@ public class UserInterface extends JFrame {
             return;
         }
         String text = textAreaOriginal.getText();
-        Map<Character, Integer> frequencies = engine.countFrequencies(text);
-        List<List<HuffmanNode>> steps = engine.getReductionSteps(frequencies);
-        Map<Character, String> codes = engine.buildCodes(frequencies);
+        Map<Character, Integer> frecuencias = motor.contarFrecuencias(text);
+        List<List<NodoHuffman>> pasos = motor.obtenerPasosReduccion(frecuencias);
+        Map<Character, String> codigos = motor.construirCodigos(frecuencias);
 
         // Construir el árbol una vez más para obtener códigos por nodo
-        HuffmanNode root = engine.buildTree(frequencies);
-        Map<HuffmanNode, String> nodeCodes = engine.getNodeCodes(root);
+        NodoHuffman raiz = motor.construirArbol(frecuencias);
+        Map<NodoHuffman, String> codigosNodo = motor.obtenerCodigosNodo(raiz);
 
-        ReductionPanel panel = new ReductionPanel(steps, codes, nodeCodes);
+        ReductionPanel panel = new ReductionPanel(pasos, codigos, codigosNodo);
         JScrollPane scroll = new JScrollPane(panel);
         scroll.getHorizontalScrollBar().setUnitIncrement(20);
         scroll.getVerticalScrollBar().setUnitIncrement(20);
@@ -423,18 +423,18 @@ public class UserInterface extends JFrame {
         private static final int MARGIN_X   = 30;
         private static final int MARGIN_Y   = 40;
 
-        private final List<List<HuffmanNode>> steps;
+        private final List<List<NodoHuffman>> steps;
         private final Map<Character, String>  charCodes;
-        private final Map<HuffmanNode, String> nodeCodes;
+        private final Map<NodoHuffman, String> nodeCodes;
 
         /**
          * @param steps     columnas de la reducción
          * @param charCodes códigos finales carácter → bits
          * @param nodeCodes códigos asignados a cada nodo del árbol (por identidad)
          */
-        ReductionPanel(List<List<HuffmanNode>> steps,
+        ReductionPanel(List<List<NodoHuffman>> steps,
                        Map<Character, String> charCodes,
-                       Map<HuffmanNode, String> nodeCodes) {
+                       Map<NodoHuffman, String> nodeCodes) {
             this.steps     = steps;
             this.charCodes = charCodes;
             this.nodeCodes = nodeCodes;
@@ -444,7 +444,7 @@ public class UserInterface extends JFrame {
         @Override
         public Dimension getPreferredSize() {
             int maxRows = 0;
-            for (List<HuffmanNode> col : steps) {
+            for (List<NodoHuffman> col : steps) {
                 maxRows = Math.max(maxRows, col.size());
             }
             int width  = MARGIN_X * 2 + steps.size() * COL_WIDTH + NODE_W;
@@ -494,18 +494,18 @@ public class UserInterface extends JFrame {
             Font codeFont  = new Font("SansSerif", Font.BOLD, 10);
 
             for (int col = 0; col < steps.size(); col++) {
-                List<HuffmanNode> column = steps.get(col);
+                List<NodoHuffman> column = steps.get(col);
                 for (int row = 0; row < column.size(); row++) {
-                    HuffmanNode node = column.get(row);
+                    NodoHuffman node = column.get(row);
                     int cx = MARGIN_X + col * COL_WIDTH + NODE_W / 2;
                     int cy = MARGIN_Y + row * ROW_HEIGHT + NODE_H / 2;
                     int rx = cx - NODE_W / 2;
                     int ry = cy - NODE_H / 2;
 
                     // ─ Fondo ─
-                    if (col == 0 && node.character != null) {
+                    if (col == 0 && node.caracter != null) {
                         g2.setColor(new Color(0xAED6F1));   // azul claro (hoja original)
-                    } else if (node.isMerged) {
+                    } else if (node.esFusionado) {
                         g2.setColor(new Color(0xFAD7A0));   // naranja claro (fusionado)
                     } else {
                         g2.setColor(new Color(0xD5F5E3));   // verde claro (nodo hoja en col > 0)
@@ -541,10 +541,10 @@ public class UserInterface extends JFrame {
         }
 
         /** Construye el texto para mostrar dentro de un nodo. */
-        private String buildNodeText(HuffmanNode node, int col) {
-            String prob = String.format("%.2f", node.probability);
-            if (col == 0 && node.character != null) {
-                String ch = charDisplayName(node.character);
+        private String buildNodeText(NodoHuffman node, int col) {
+            String prob = String.format("%.2f", node.probabilidad);
+            if (col == 0 && node.caracter != null) {
+                String ch = charDisplayName(node.caracter);
                 return ch + "  |  " + prob;
             }
             return prob;
@@ -563,13 +563,13 @@ public class UserInterface extends JFrame {
          * Devuelve el código asignado a un nodo hoja, o null si es nodo interno.
          * Primero busca por identidad en nodeCodes; si no está, usa charCodes.
          */
-        private String getLeafCode(HuffmanNode node) {
+        private String getLeafCode(NodoHuffman node) {
             // Buscar por identidad de nodo
             String code = nodeCodes.get(node);
-            if (code != null && node.character != null) return code;
+            if (code != null && node.caracter != null) return code;
             // Fallback: si es hoja con carácter, buscar en charCodes
-            if (node.character != null) {
-                return charCodes.get(node.character);
+            if (node.caracter != null) {
+                return charCodes.get(node.caracter);
             }
             return null;
         }
@@ -581,18 +581,18 @@ public class UserInterface extends JFrame {
             Font bitFont = new Font("SansSerif", Font.BOLD, 11);
 
             for (int col = 1; col < steps.size(); col++) {
-                List<HuffmanNode> prevCol = steps.get(col - 1);
-                List<HuffmanNode> currCol = steps.get(col);
+                List<NodoHuffman> prevCol = steps.get(col - 1);
+                List<NodoHuffman> currCol = steps.get(col);
 
                 for (int row = 0; row < currCol.size(); row++) {
-                    HuffmanNode node = currCol.get(row);
+                    NodoHuffman node = currCol.get(row);
                     int destX = MARGIN_X + col * COL_WIDTH;
                     int destY = MARGIN_Y + row * ROW_HEIGHT + NODE_H / 2;
 
-                    if (node.isMerged && node.left != null && node.right != null) {
+                    if (node.esFusionado && node.izquierdo != null && node.derecho != null) {
                         // ── Flechas convergentes de fusión ──
-                        int leftIdx  = findNodeIndex(prevCol, node.left);
-                        int rightIdx = findNodeIndex(prevCol, node.right);
+                        int leftIdx  = findNodeIndex(prevCol, node.izquierdo);
+                        int rightIdx = findNodeIndex(prevCol, node.derecho);
 
                         if (leftIdx >= 0) {
                             int srcX = MARGIN_X + (col - 1) * COL_WIDTH + NODE_W;
@@ -662,7 +662,7 @@ public class UserInterface extends JFrame {
         }
 
         /** Busca un nodo por identidad de referencia en una columna. */
-        private int findNodeIndex(List<HuffmanNode> column, HuffmanNode target) {
+        private int findNodeIndex(List<NodoHuffman> column, NodoHuffman target) {
             for (int i = 0; i < column.size(); i++) {
                 if (column.get(i) == target) return i;
             }
@@ -673,7 +673,7 @@ public class UserInterface extends JFrame {
          * Busca un nodo correspondiente en la columna previa (no fusionado).
          * Coincide por identidad de referencia (mismo objeto Java).
          */
-        private int findMatchingNodeIndex(List<HuffmanNode> prevCol, HuffmanNode node) {
+        private int findMatchingNodeIndex(List<NodoHuffman> prevCol, NodoHuffman node) {
             for (int i = 0; i < prevCol.size(); i++) {
                 if (prevCol.get(i) == node) return i;
             }

@@ -9,9 +9,9 @@ mediante el **Método de Reducción de Fuente de Huffman por Columnas**.
 
 ```
 Main.java            → Punto de entrada
-HuffmanNode.java     → Nodo del árbol
-HuffmanEngine.java   → Motor del algoritmo
-BinaryIOManager.java → Lectura y escritura binaria
+NodoHuffman.java     → Nodo del árbol
+MotorHuffman.java    → Motor del algoritmo
+GestorIOBinario.java → Lectura y escritura binaria
 UserInterface.java   → Interfaz gráfica Swing
 ```
 
@@ -46,9 +46,9 @@ y muestra el contenido en el panel izquierdo de la ventana.
 
 ### 2. El usuario presiona "Compactar"
 
-`UserInterface` llama a `BinaryIOManager.compress()`, que hace tres cosas:
+`UserInterface` llama a `GestorIOBinario.comprimir()`, que hace tres cosas:
 
-#### 2a. Contar frecuencias — `HuffmanEngine.countFrequencies()`
+#### 2a. Contar frecuencias — `MotorHuffman.contarFrecuencias()`
 
 Recorre el texto carácter por carácter y cuenta cuántas veces aparece cada uno.
 
@@ -57,7 +57,7 @@ Texto: "AABDC"
 Resultado: {A=2, B=1, D=1, C=1}
 ```
 
-#### 2b. Construir el árbol — `HuffmanEngine.buildTree()`
+#### 2b. Construir el árbol — `MotorHuffman.construirArbol()`
 
 Implementa el método de reducción de fuente por columnas, exactamente como en el pizarrón:
 
@@ -94,7 +94,7 @@ Paso 3: fusiona [0.3] + [0.2]   → [0.5]
    D    B C    E
 ```
 
-#### 2c. Asignar códigos — `HuffmanEngine.buildCodes()` + `assignCodes()`
+#### 2c. Asignar códigos — `MotorHuffman.construirCodigos()` + `asignarCodigos()`
 
 Recorre el árbol desde la raíz. Al hijo izquierdo le concatena "0" y al derecho "1",
 recursivamente hasta llegar a las hojas.
@@ -110,7 +110,7 @@ E  → 011
 Los nodos más cercanos a la raíz reciben códigos más cortos.
 Los más profundos reciben códigos más largos.
 
-#### 2d. Escribir el archivo .huf — `BinaryIOManager.compress()`
+#### 2d. Escribir el archivo .huf — `GestorIOBinario.comprimir()`
 
 El archivo .huf tiene dos partes:
 
@@ -145,17 +145,17 @@ con ceros a la derecha (**padding**).
 ### 3. El usuario presiona "Descompactar"
 
 `UserInterface` abre un `JFileChooser` para seleccionar el `.huf` y llama
-a `BinaryIOManager.decompress()`, que hace el proceso inverso:
+a `GestorIOBinario.descomprimir()`, que hace el proceso inverso:
 
 1. **Lee el header** → reconstruye la tabla de frecuencias.
-2. **Reconstruye el árbol** llamando a `buildTree()` con esas frecuencias.
+2. **Reconstruye el árbol** llamando a `construirArbol()` con esas frecuencias.
    Funciona porque el árbol es determinista: las mismas frecuencias siempre
    producen el mismo árbol.
 3. **Lee los bytes del cuerpo** y los decodifica bit a bit navegando el árbol:
    - bit `0` → ir al hijo izquierdo
    - bit `1` → ir al hijo derecho
    - al llegar a una hoja → ese es el carácter, volver a la raíz
-4. **Para exactamente** al recuperar `originalCharCount` caracteres,
+4. **Para exactamente** al recuperar `cantidadCaracteresOriginal` caracteres,
    ignorando los bits de padding del último byte.
 5. **Escribe el archivo .dhu**, que es idéntico al archivo original.
 
@@ -170,18 +170,18 @@ archivos usando `file.length()` y calcula el ratio de compresión vs el original
 
 ## Estructura del árbol en memoria
 
-Cada nodo del árbol es un objeto `HuffmanNode` con estos campos:
+Cada nodo del árbol es un objeto `NodoHuffman` con estos campos:
 
 | Campo | Descripción |
 |---|---|
-| `probability` | Probabilidad del nodo |
-| `character` | El carácter que representa. `null` si es nodo interno |
-| `left` | Hijo izquierdo (bit "0") |
-| `right` | Hijo derecho (bit "1") |
-| `isMerged` | `true` si es resultado de una fusión |
+| `probabilidad` | Probabilidad del nodo |
+| `caracter` | El carácter que representa. `null` si es nodo interno |
+| `izquierdo` | Hijo izquierdo (bit "0") |
+| `derecho` | Hijo derecho (bit "1") |
+| `esFusionado` | `true` si es resultado de una fusión |
 
-Las **hojas** tienen `character != null` y sin hijos.
-Los **nodos internos** tienen `character == null` y dos hijos.
+Las **hojas** tienen `caracter != null` y sin hijos.
+Los **nodos internos** tienen `caracter == null` y dos hijos.
 
 ---
 
@@ -204,7 +204,7 @@ Esto es matemáticamente correcto, no es un bug.
 
 ## Validación interna
 
-Al arrancar, `Main` ejecuta `HuffmanEngine.selfTest()` que verifica el ejemplo
+Al arrancar, `Main` ejecuta `MotorHuffman.autoPrueba()` que verifica el ejemplo
 del pizarrón y confirma que los códigos son exactamente:
 
 ```
