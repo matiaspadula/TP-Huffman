@@ -2,37 +2,36 @@ import java.util.*;
 
 public class MotorHuffman {
 
-    //cuenta frecuencia de cada caracter
-    public Map<Character, Integer> contarFrecuencias(String texto) {
-        Map<Character, Integer> frecuencias = new LinkedHashMap<>(); //linkedhashmap para mantener orden de insercion
-        for (int i = 0; i < texto.length(); i++) {
-            char c = texto.charAt(i);
-            frecuencias.merge(c, 1, Integer::sum); //si el caracter no existe lo agrega con valor 1, si existia suma uno
+    //cuenta frecuencia de cada byte
+    public Map<Byte, Integer> contarFrecuencias(byte[] datos) {
+        Map<Byte, Integer> frecuencias = new LinkedHashMap<>(); //linkedhashmap para mantener orden de insercion
+        for (byte b : datos) {
+            frecuencias.merge(b, 1, Integer::sum); //si el caracter no existe lo agrega con valor 1, si existia suma uno
         }
         return frecuencias;
     }
 
     // construye el arbol en base a las frecuencias
-    public NodoHuffman construirArbol(Map<Character, Integer> frecuencias) {
-        if (frecuencias == null || frecuencias.isEmpty()) { //si no hay texto mandamos pal lobby
+    public NodoHuffman construirArbol(Map<Byte, Integer> frecuencias) {
+        if (frecuencias == null || frecuencias.isEmpty()) { //si no hay datos mandamos pal lobby
             return null;
         }
 
-        int totalCaracteres = 0;
+        int totalBytes = 0;
         for (int frec : frecuencias.values()) {
-            totalCaracteres += frec; //calculamos la cantidad total de caracteres del txt
+            totalBytes += frec; //calculamos la cantidad total de bytes del archivo
         }
 
         List<NodoHuffman> nodos = new ArrayList<>();
-        for (Map.Entry<Character, Integer> entrada : frecuencias.entrySet()) { // creamos lista inicial de nodos iniciales
+        for (Map.Entry<Byte, Integer> entrada : frecuencias.entrySet()) { // creamos lista inicial de nodos iniciales
             NodoHuffman nodo = new NodoHuffman();
-            nodo.caracter = entrada.getKey();
-            nodo.probabilidad = (double) entrada.getValue() / totalCaracteres; //sacamos probabilidad de caracter
+            nodo.valorByte = entrada.getKey();
+            nodo.probabilidad = (double) entrada.getValue() / totalBytes; //sacamos probabilidad
             nodo.esFusionado = false;//marcamos falso pq el nodo es del caracter en si
             nodos.add(nodo);
         }
 
-        // caso especial: un solo carácter
+        // caso especial: un solo byte caracter
         if (nodos.size() == 1) {
             NodoHuffman raiz = new NodoHuffman();
             raiz.probabilidad = 1.0;
@@ -51,7 +50,7 @@ public class MotorHuffman {
             NodoHuffman padre = new NodoHuffman();  // Crear nodo padre fusionado
             padre.probabilidad = superior.probabilidad + inferior.probabilidad;
             padre.esFusionado = true;
-            padre.caracter = null;
+            padre.valorByte = null;
             padre.izquierdo = superior;
             padre.derecho = inferior;
             // Reinsertar en la lista
@@ -62,7 +61,7 @@ public class MotorHuffman {
         NodoHuffman raiz = new NodoHuffman();
         raiz.probabilidad = 1.0;
         raiz.esFusionado = true;
-        raiz.caracter = null;
+        raiz.valorByte = null;
         raiz.izquierdo = nodos.get(0);   // superior → código "0"
         raiz.derecho = nodos.get(1);  // inferior → código "1"
         return raiz;
@@ -77,9 +76,9 @@ public class MotorHuffman {
             // 2. En caso de empate, los nodos fusionados primero
             if (a.esFusionado && !b.esFusionado) return -1;
             if (!a.esFusionado && b.esFusionado) return 1;
-            // 3. Si son iguales, ordenamos por carácter
-            if (a.caracter != null && b.caracter != null) {
-                return Character.compare(a.caracter, b.caracter);
+            // 3. Si son iguales, ordenamos por valor de byte (unsigned)
+            if (a.valorByte != null && b.valorByte != null) {
+                return Integer.compare(a.valorByte & 0xFF, b.valorByte & 0xFF);
             }
             // 4. Si son ambos fusionados, mantenemos orden
             return 0;
@@ -87,14 +86,14 @@ public class MotorHuffman {
     }
 
     // punto de entrada al backtracking desde raiz
-    public Map<Character, String> construirCodigos(Map<Character, Integer> frecuencias) {
+    public Map<Byte, String> construirCodigos(Map<Byte, Integer> frecuencias) {
         NodoHuffman raiz = construirArbol(frecuencias);
-        Map<Character, String> codigos = new LinkedHashMap<>();
+        Map<Byte, String> codigos = new LinkedHashMap<>();
         if (raiz == null) return codigos;
 
         // si solo hay un solo caracter no tenemos nada que recorrer, asignamos 0 y listo
         if (raiz.derecho == null && raiz.izquierdo != null) {
-            codigos.put(raiz.izquierdo.caracter, "0");
+            codigos.put(raiz.izquierdo.valorByte, "0");
             return codigos;
         }
 
@@ -108,37 +107,35 @@ public class MotorHuffman {
 
     //asigna codigos recorriendo recursivamente el arbol, el hijo izquiedo hereda cod de padre + 0
     //el hijo derecho hereda cod de padre + 1
-    private void asignarCodigos(NodoHuffman nodo, String codigo, Map<Character, String> codigos) {
+    private void asignarCodigos(NodoHuffman nodo, String codigo, Map<Byte, String> codigos) {
         if (nodo == null) return;
-        // si es nodo terminal (tiene caracter) guarda codigo acumulado hasta ahi y para
-        if (nodo.caracter != null) {
-            codigos.put(nodo.caracter, codigo);
+        // si es nodo terminal (tiene valorByte) guarda codigo acumulado hasta ahi y para
+        if (nodo.valorByte != null) {
+            codigos.put(nodo.valorByte, codigo);
             return;
         }
-        // si no tiene caracter es una fusion y nodo interno, se llama dos veces
+        // si no tiene valorByte es una fusion y nodo interno, se llama dos veces
         //una por hijo para concatenar 0 o 1 al codigo que ya traia
         asignarCodigos(nodo.izquierdo, codigo + "0", codigos);
         asignarCodigos(nodo.derecho, codigo + "1", codigos);
     }
 
     //recorre el archivo bit a bit, cada vez que llega a una hoja anota el caracter
-    //asi sucesivamente hasta recuperar el texto original
-    public String decodificar(NodoHuffman raiz, byte[] datosComprimidos, long cantidadCaracteresOriginal) {
-        if (raiz == null || cantidadCaracteresOriginal == 0) return "";
+    //asi sucesivamente hasta recuperar los datos originales
+    public byte[] decodificar(NodoHuffman raiz, byte[] datosComprimidos, long cantidadBytesOriginal) {
+        if (raiz == null || cantidadBytesOriginal == 0) return new byte[0];
 
-        StringBuilder sb = new StringBuilder();
+        byte[] resultado = new byte[(int) cantidadBytesOriginal];
+        int posResultado = 0;
 
-        //si tiene un solo carácter (hijo izq), se repite el caracter cantidadCaracteresOriginal veces, no hace falta leer bits
+        //si tiene un solo caracter (hijo izq), se repite el byte cantidadBytesOriginal veces, no hace falta leer bits
         if (raiz.derecho == null && raiz.izquierdo != null) {
-            char unicoCaracter = raiz.izquierdo.caracter;
-            for (long i = 0; i < cantidadCaracteresOriginal; i++) {
-                sb.append(unicoCaracter);
-            }
-            return sb.toString();
+            byte unicoByte = raiz.izquierdo.valorByte;
+            Arrays.fill(resultado, unicoByte);
+            return resultado;
         }
 
         NodoHuffman actual = raiz;
-        long contadorCaracteres = 0;
 
         for (int indiceByte = 0; indiceByte < datosComprimidos.length; indiceByte++) {
             int byteNoFirmado = datosComprimidos[indiceByte] & 0xFF; //convertimos a unsigned con 0xff
@@ -151,45 +148,44 @@ public class MotorHuffman {
                     actual = actual.derecho;
                 }
 
-                // Llegamos a una hoja y guardamos caracter
-                if (actual.caracter != null) {
-                    sb.append(actual.caracter);
-                    contadorCaracteres++;
-                    if (contadorCaracteres == cantidadCaracteresOriginal) {
-                        return sb.toString();
+                // Llegamos a una hoja y guardamos 
+                if (actual.valorByte != null) {
+                    resultado[posResultado++] = actual.valorByte;
+                    if (posResultado == cantidadBytesOriginal) {
+                        return resultado;
                     }
                     actual = raiz; // volver a la raíz para seguir
                 }
             }
         }
 
-        return sb.toString();
+        return resultado;
     }
 
     //lo mismo que construirArbol() pero devuelve el estado de la estructura en cada reduccion para poder mostrarlo
-    public List<List<NodoHuffman>> obtenerPasosReduccion(Map<Character, Integer> frecuencias) {
+    public List<List<NodoHuffman>> obtenerPasosReduccion(Map<Byte, Integer> frecuencias) {
         List<List<NodoHuffman>> pasos = new ArrayList<>();
 
         if (frecuencias == null || frecuencias.isEmpty()) {
             return pasos;
         }
 
-        int totalCaracteres = 0;
+        int totalBytes = 0;
         for (int frec : frecuencias.values()) {
-            totalCaracteres += frec;
+            totalBytes += frec;
         }
 
         // Crear lista inicial de nodos hoja
         List<NodoHuffman> nodos = new ArrayList<>();
-        for (Map.Entry<Character, Integer> entrada : frecuencias.entrySet()) {
+        for (Map.Entry<Byte, Integer> entrada : frecuencias.entrySet()) {
             NodoHuffman nodo = new NodoHuffman();
-            nodo.caracter = entrada.getKey();
-            nodo.probabilidad = (double) entrada.getValue() / totalCaracteres;
+            nodo.valorByte = entrada.getKey();
+            nodo.probabilidad = (double) entrada.getValue() / totalBytes;
             nodo.esFusionado = false;
             nodos.add(nodo);
         }
 
-        // Caso especial: un solo carácter
+        // Caso especial: un solo caracter
         if (nodos.size() == 1) {
             ordenarNodos(nodos);
             pasos.add(new ArrayList<>(nodos));
@@ -210,7 +206,7 @@ public class MotorHuffman {
             NodoHuffman padre = new NodoHuffman();
             padre.probabilidad = superior.probabilidad + inferior.probabilidad;
             padre.esFusionado = true;
-            padre.caracter = null;
+            padre.valorByte = null;
             padre.izquierdo = superior;
             padre.derecho = inferior;
 
@@ -229,7 +225,7 @@ public class MotorHuffman {
         Map<NodoHuffman, String> codigosNodo = new IdentityHashMap<>();
         if (raiz == null) return codigosNodo;
 
-        //un solo carácter
+        //un solo caracter
         if (raiz.derecho == null && raiz.izquierdo != null) {
             codigosNodo.put(raiz.izquierdo, "0");
             return codigosNodo;
@@ -255,27 +251,27 @@ public class MotorHuffman {
      */
     public static void autoTest() {
         MotorHuffman motor = new MotorHuffman();
-        Map<Character, Integer> frec = new LinkedHashMap<>();
-        frec.put('A', 5);
-        frec.put('B', 1);
-        frec.put('C', 1);
-        frec.put('D', 2);
-        frec.put('E', 1);
+        Map<Byte, Integer> frec = new LinkedHashMap<>();
+        frec.put((byte) 'A', 5);
+        frec.put((byte) 'B', 1);
+        frec.put((byte) 'C', 1);
+        frec.put((byte) 'D', 2);
+        frec.put((byte) 'E', 1);
 
-        Map<Character, String> codigos = motor.construirCodigos(frec);
+        Map<Byte, String> codigos = motor.construirCodigos(frec);
 
-        Map<Character, String> esperado = new LinkedHashMap<>();
-        esperado.put('A', "1");
-        esperado.put('D', "000");
-        esperado.put('B', "001");
-        esperado.put('C', "010");
-        esperado.put('E', "011");
+        Map<Byte, String> esperado = new LinkedHashMap<>();
+        esperado.put((byte) 'A', "1");
+        esperado.put((byte) 'D', "000");
+        esperado.put((byte) 'B', "001");
+        esperado.put((byte) 'C', "010");
+        esperado.put((byte) 'E', "011");
 
         boolean exitoso = true;
-        for (Map.Entry<Character, String> entrada : esperado.entrySet()) {
+        for (Map.Entry<Byte, String> entrada : esperado.entrySet()) {
             String obtenido = codigos.get(entrada.getKey());
             if (!entrada.getValue().equals(obtenido)) {
-                System.err.println("[SELF-TEST FAIL] " + entrada.getKey()
+                System.err.println("[SELF-TEST FAIL] " + (char)(entrada.getKey() & 0xFF)
                         + " esperado=" + entrada.getValue() + " obtenido=" + obtenido);
                 exitoso = false;
             }

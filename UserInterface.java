@@ -28,6 +28,9 @@ public class UserInterface extends JFrame {
     /** Etiqueta de estado en la parte inferior. */
     private JLabel statusLabel;
 
+    /** Bytes crudos del archivo cargado (para compresión). */
+    private byte[] loadedBytes;
+
     /** Referencia al archivo de texto cargado. */
     private File loadedFile;
 
@@ -144,8 +147,6 @@ public class UserInterface extends JFrame {
         try {
             JFileChooser chooser = new JFileChooser();
             chooser.setDialogTitle("Seleccionar archivo de texto");
-            chooser.setFileFilter(new FileNameExtensionFilter(
-                    "Archivos de texto (*.txt, *.doc, *.csv)", "txt", "doc", "csv", "text"));
             chooser.setAcceptAllFileFilterUsed(true);
 
             int result = chooser.showOpenDialog(this);
@@ -154,12 +155,12 @@ public class UserInterface extends JFrame {
             loadedFile = chooser.getSelectedFile();
             statusLabel.setText("  Cargando: " + loadedFile.getName() + "...");
 
-            // Leer contenido del archivo
-            String content;
+
+            // Leer contenido del archivo como bytes
             try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(loadedFile))) {
-                byte[] bytes = bis.readAllBytes();
-                content = new String(bytes, StandardCharsets.UTF_8);
+                loadedBytes = bis.readAllBytes();
             }
+            String content = new String(loadedBytes, StandardCharsets.UTF_8);
 
             textAreaOriginal.setText(content);
             textAreaOriginal.setCaretPosition(0);
@@ -190,7 +191,7 @@ public class UserInterface extends JFrame {
      * Genera el archivo en el mismo directorio con extensión .huf.
      */
     private void compressFile() {
-        if (loadedFile == null) {
+        if (loadedFile == null || loadedBytes == null) {
             JOptionPane.showMessageDialog(this,
                     "No hay archivo cargado. Use 'Cargar Archivo' primero.",
                     "Error", JOptionPane.WARNING_MESSAGE);
@@ -363,15 +364,14 @@ public class UserInterface extends JFrame {
      * Muestra un JDialog modal con el diagrama de reducción de fuente de Huffman.
      */
     private void showTree() {
-        if (loadedFile == null || textAreaOriginal.getText().isEmpty()) {
+        if (loadedFile == null || loadedBytes == null || loadedBytes.length == 0) {
             JOptionPane.showMessageDialog(this, "Cargue un archivo primero.",
                     "Error", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        String text = textAreaOriginal.getText();
-        Map<Character, Integer> frecuencias = motor.contarFrecuencias(text);
+        Map<Byte, Integer> frecuencias = motor.contarFrecuencias(loadedBytes);
         List<List<NodoHuffman>> pasos = motor.obtenerPasosReduccion(frecuencias);
-        Map<Character, String> codigos = motor.construirCodigos(frecuencias);
+        Map<Byte, String> codigos = motor.construirCodigos(frecuencias);
 
         // Construir el árbol una vez más para obtener códigos por nodo
         NodoHuffman raiz = motor.construirArbol(frecuencias);
@@ -424,19 +424,19 @@ public class UserInterface extends JFrame {
         private static final int MARGIN_Y   = 40;
 
         private final List<List<NodoHuffman>> steps;
-        private final Map<Character, String>  charCodes;
+        private final Map<Byte, String>       byteCodes;
         private final Map<NodoHuffman, String> nodeCodes;
 
         /**
          * @param steps     columnas de la reducción
-         * @param charCodes códigos finales carácter → bits
+         * @param byteCodes códigos finales byte → bits
          * @param nodeCodes códigos asignados a cada nodo del árbol (por identidad)
          */
         ReductionPanel(List<List<NodoHuffman>> steps,
-                       Map<Character, String> charCodes,
+                       Map<Byte, String> byteCodes,
                        Map<NodoHuffman, String> nodeCodes) {
             this.steps     = steps;
-            this.charCodes = charCodes;
+            this.byteCodes = byteCodes;
             this.nodeCodes = nodeCodes;
             setBackground(Color.WHITE);
         }
@@ -503,7 +503,7 @@ public class UserInterface extends JFrame {
                     int ry = cy - NODE_H / 2;
 
                     // ─ Fondo ─
-                    if (col == 0 && node.caracter != null) {
+                    if (col == 0 && node.valorByte != null) {
                         g2.setColor(new Color(0xAED6F1));   // azul claro (hoja original)
                     } else if (node.esFusionado) {
                         g2.setColor(new Color(0xFAD7A0));   // naranja claro (fusionado)
@@ -543,33 +543,35 @@ public class UserInterface extends JFrame {
         /** Construye el texto para mostrar dentro de un nodo. */
         private String buildNodeText(NodoHuffman node, int col) {
             String prob = String.format("%.2f", node.probabilidad);
-            if (col == 0 && node.caracter != null) {
-                String ch = charDisplayName(node.caracter);
-                return ch + "  |  " + prob;
+            if (col == 0 && node.valorByte != null) {
+                String display = byteDisplayName(node.valorByte);
+                return display + "  |  " + prob;
             }
             return prob;
         }
 
-        /** Nombre legible de caracteres especiales. */
-        private String charDisplayName(char c) {
-            if (c == ' ')  return "SP";
-            if (c == '\n') return "NL";
-            if (c == '\t') return "TAB";
-            if (c == '\r') return "CR";
-            return String.valueOf(c);
+        /** Nombre legible de un byte: ASCII imprimible como carácter, especiales con nombre, resto como hex. */
+        private String byteDisplayName(byte b) {
+            int unsigned = b & 0xFF;
+            if (unsigned == 0x20) return "SP";
+            if (unsigned == 0x0A) return "NL";
+            if (unsigned == 0x09) return "TAB";
+            if (unsigned == 0x0D) return "CR";
+            if (unsigned >= 0x21 && unsigned <= 0x7E) return String.valueOf((char) unsigned);
+            return String.format("0x%02X", unsigned);
         }
 
         /**
          * Devuelve el código asignado a un nodo hoja, o null si es nodo interno.
-         * Primero busca por identidad en nodeCodes; si no está, usa charCodes.
+         * Primero busca por identidad en nodeCodes; si no está, usa byteCodes.
          */
         private String getLeafCode(NodoHuffman node) {
             // Buscar por identidad de nodo
             String code = nodeCodes.get(node);
-            if (code != null && node.caracter != null) return code;
-            // Fallback: si es hoja con carácter, buscar en charCodes
-            if (node.caracter != null) {
-                return charCodes.get(node.caracter);
+            if (code != null && node.valorByte != null) return code;
+            // Fallback: si es hoja con byte, buscar en byteCodes
+            if (node.valorByte != null) {
+                return byteCodes.get(node.valorByte);
             }
             return null;
         }

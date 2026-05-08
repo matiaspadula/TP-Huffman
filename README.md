@@ -2,6 +2,8 @@
 
 Aplicación en Java 21 con Swing que implementa compresión y descompresión de archivos
 mediante el **Método de Reducción de Fuente de Huffman por Columnas**.
+Opera a nivel de **byte** (no de carácter), lo que permite comprimir cualquier tipo de archivo
+y maximiza la eficiencia del header.
 
 ---
 
@@ -37,10 +39,11 @@ Si aparece `[SELF-TEST FAIL]`, hay un bug en la generación de códigos.
 
 ## Flujo de ejecución
 
-### 1. El usuario carga un archivo de texto
+### 1. El usuario carga un archivo
 
-`UserInterface` abre un `JFileChooser`, lee el archivo con `BufferedInputStream`
-y muestra el contenido en el panel izquierdo de la ventana.
+`UserInterface` abre un `JFileChooser` y lee el archivo como **bytes crudos**
+(`byte[]`) con `BufferedInputStream`. Los bytes se almacenan internamente para
+la compresión y se muestran como texto UTF-8 en el panel izquierdo de la ventana.
 
 ---
 
@@ -50,18 +53,18 @@ y muestra el contenido en el panel izquierdo de la ventana.
 
 #### 2a. Contar frecuencias — `MotorHuffman.contarFrecuencias()`
 
-Recorre el texto carácter por carácter y cuenta cuántas veces aparece cada uno.
+Recorre el `byte[]` del archivo y cuenta cuántas veces aparece cada valor de byte.
 
 ```
-Texto: "AABDC"
-Resultado: {A=2, B=1, D=1, C=1}
+Datos: [0x41, 0x41, 0x42, 0x44, 0x43]  ("AABDC" en ASCII)
+Resultado: {0x41=2, 0x42=1, 0x44=1, 0x43=1}
 ```
 
 #### 2b. Construir el árbol — `MotorHuffman.construirArbol()`
 
 Implementa el método de reducción de fuente por columnas, exactamente como en el pizarrón:
 
-1. Convierte frecuencias a probabilidades dividiendo por el total de caracteres.
+1. Convierte frecuencias a probabilidades dividiendo por el total de bytes.
 2. Ordena los nodos de mayor a menor probabilidad.
 3. En cada paso agarra los **dos de menor probabilidad** (los últimos de la lista),
    los fusiona en un nodo padre y lo reinserta en la lista.
@@ -72,7 +75,7 @@ El árbol se construye **de abajo hacia arriba**: cada fusión crea un nodo padr
 guarda referencias a sus dos hijos. Al final la raíz apunta a toda la estructura.
 
 **Regla de empate:** si un nodo fusionado y un nodo individual tienen la misma
-probabilidad, el fusionado va **por encima**. Esto garantiza que el símbolo más
+probabilidad, el fusionado va **por encima**. Esto garantiza que el byte más
 frecuente reciba el código más corto.
 
 Ejemplo con S={A,B,C,D,E}, P={0.5, 0.1, 0.1, 0.2, 0.1}:
@@ -116,28 +119,28 @@ El archivo .huf tiene dos partes:
 
 **Header** (información para reconstruir el árbol al descomprimir):
 ```
-[8 bytes] long → cantidad total de caracteres del archivo original
-[4 bytes] int  → cantidad de símbolos únicos (tamaño del alfabeto)
+[8 bytes] long → cantidad total de bytes del archivo original
+[4 bytes] int  → cantidad de símbolos únicos (tamaño del alfabeto, max 256)
 por cada símbolo:
-    [2 bytes] char → el carácter
+    [1 byte]  byte → el valor del byte
     [4 bytes] int  → su frecuencia
 ```
 
-**Cuerpo** (texto comprimido con acumulador de bits):
+**Cuerpo** (datos comprimidos con acumulador de bits):
 
-En vez de guardar cada carácter en 8 bits, guarda su código Huffman.
+En vez de guardar cada byte en 8 bits, guarda su código Huffman.
 Los bits se van acumulando en un buffer de 8 bits y se escribe un byte
 cada vez que el buffer se llena:
 
 ```
-Texto "AD":
-A → "1"    → bits: 1
-D → "000"  → bits: 000
+Datos [0x41, 0x44] ("AD"):
+0x41 → "1"    → bits: 1
+0x44 → "000"  → bits: 000
 
 Acumulando: 1 0 0 0 → al llegar a 8 bits → escribe byte 10000000
 ```
 
-Si al terminar el texto quedan bits sin completar un byte, se rellenan
+Si al terminar los datos quedan bits sin completar un byte, se rellenan
 con ceros a la derecha (**padding**).
 
 ---
@@ -154,10 +157,10 @@ a `GestorIOBinario.descomprimir()`, que hace el proceso inverso:
 3. **Lee los bytes del cuerpo** y los decodifica bit a bit navegando el árbol:
    - bit `0` → ir al hijo izquierdo
    - bit `1` → ir al hijo derecho
-   - al llegar a una hoja → ese es el carácter, volver a la raíz
-4. **Para exactamente** al recuperar `cantidadCaracteresOriginal` caracteres,
+   - al llegar a una hoja → ese es el byte, volver a la raíz
+4. **Para exactamente** al recuperar `cantidadBytesOriginal` bytes,
    ignorando los bits de padding del último byte.
-5. **Escribe el archivo .dhu**, que es idéntico al archivo original.
+5. **Escribe el archivo .dhu** como bytes crudos, idéntico al archivo original.
 
 ---
 
@@ -175,13 +178,13 @@ Cada nodo del árbol es un objeto `NodoHuffman` con estos campos:
 | Campo | Descripción |
 |---|---|
 | `probabilidad` | Probabilidad del nodo |
-| `caracter` | El carácter que representa. `null` si es nodo interno |
+| `valorByte` | El byte que representa. `null` si es nodo interno |
 | `izquierdo` | Hijo izquierdo (bit "0") |
 | `derecho` | Hijo derecho (bit "1") |
 | `esFusionado` | `true` si es resultado de una fusión |
 
-Las **hojas** tienen `caracter != null` y sin hijos.
-Los **nodos internos** tienen `caracter == null` y dos hijos.
+Las **hojas** tienen `valorByte != null` y sin hijos.
+Los **nodos internos** tienen `valorByte == null` y dos hijos.
 
 ---
 
@@ -190,12 +193,12 @@ Los **nodos internos** tienen `caracter == null` y dos hijos.
 El header tiene un costo fijo mínimo de:
 
 ```
-12 bytes base + N × 6 bytes por símbolo único
+12 bytes base + N × 5 bytes por símbolo único
 ```
 
-Para texto en español con ~70 símbolos únicos el header pesa ~432 bytes.
-La ganancia de Huffman en español es ~3.5 bits por carácter.
-El punto de equilibrio es aproximadamente **1000 caracteres**.
+Para texto en español con ~90 valores de byte únicos el header pesa ~462 bytes.
+La ganancia de Huffman en español es ~3 bits por byte.
+El punto de equilibrio es aproximadamente **600 bytes**.
 
 Por debajo de ese umbral el archivo comprimido pesa más que el original.
 Esto es matemáticamente correcto, no es un bug.
@@ -204,13 +207,13 @@ Esto es matemáticamente correcto, no es un bug.
 
 ## Validación interna
 
-Al arrancar, `Main` ejecuta `MotorHuffman.autoPrueba()` que verifica el ejemplo
-del pizarrón y confirma que los códigos son exactamente:
+Al arrancar, `Main` ejecuta `MotorHuffman.autoTest()` que verifica el ejemplo
+del pizarrón usando bytes ASCII y confirma que los códigos son exactamente:
 
 ```
-A → 1
-B → 001
-C → 010
-D → 000
-E → 011
+0x41 (A) → 1
+0x42 (B) → 001
+0x43 (C) → 010
+0x44 (D) → 000
+0x45 (E) → 011
 ```
